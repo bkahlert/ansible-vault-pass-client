@@ -59,7 +59,8 @@ case ${ANSIBLE_VAULT_PASS_CLIENT-} in
     if [ "${ANSIBLE_VAULT_PASS_CLIENT-}" ]; then
       printf 'Your configured password manager "%s" configuration is missing.\n' "${ANSIBLE_VAULT_PASS_CLIENT-}" >&2
     else
-      printf 'No password manager set. Please set ANSIBLE_VAULT_PASS_CLIENT.\n' >&2
+      printf 'No password manager set.\n' >&2
+      printf 'Please consult https://github.com/bkahlert/ansible-vault-pass-client for further instructions.\n' >&2
     fi
     exit 1
     ;;
