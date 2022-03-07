@@ -6,6 +6,13 @@
 
 ## Installation
 
+### Package Managers
+
+```shell
+brew install bkahlert/ansible-vault-pass-client/ansible-vault-pass-client
+```
+
+### Manual
 `ansible-vault-pass-client` is a Bash script. 
 
 In order to use it, it needs to be downloaded, put on your `$PATH`
