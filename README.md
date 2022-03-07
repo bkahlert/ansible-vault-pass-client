@@ -8,11 +8,13 @@
 
 `ansible-vault-pass-client` is a Bash script. 
 
-In order to use it, it needs to be downloaded and put on your `$PATH`
+In order to use it, it needs to be downloaded, put on your `$PATH`
+and made executable,
 which is exactly what the following line is doing:
 ```shell
-sudo curl -LfsSo /usr/local/bin/ansible-vault-pass-client \ 
+sudo curl -LfsSo /usr/local/bin/ansible-vault-pass-client \
 https://raw.githubusercontent.com/bkahlert/ansible-vault-pass-client/master/ansible-vault-pass-client
+sudo chmod +x /usr/local/bin/ansible-vault-pass-client
 ```
 
 ## Configuration
