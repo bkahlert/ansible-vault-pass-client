@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+#bashsupport disable=BP5004
+#
+# ansible-vault-pass-client — Ansible vault password client script to integrate
+#                             your password manager (LastPass, 1Password, etc.)
+# https://github.com/bkahlert/ansible-vault-pass-client
+#
+# MIT License
+#
+# Copyright (c) 2022 Dr. Björn Kahlert
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# Joins remaining args with first arg.
+join_by() {
+  local d=${1-} f=${2-}
+  if shift 2; then
+    printf %s "$f" "${@/#/$d}"
+  fi
+}
+
+declare pass_name pass_cmd
+declare -a pass_login_cmd pass_status_cmd pass_query_cmd
+case ${ANSIBLE_VAULT_PASS_CLIENT-} in
+  lpass|lastpass)
+    pass_name="LastPass"
+    pass_cmd="l"pass
+    [ "${ANSIBLE_VAULT_PASS_CLIENT_USERNAME-}" ] || {
+      printf 'Required username for %s configuration is missing.\n' "$pass_name" >&2
+      printf 'Please set ANSIBLE_VAULT_PASS_CLIENT_USERNAME accordingly.\n' >&2
+      exit 1
+    }
+    pass_login_cmd=("$pass_cmd" login --trust "$ANSIBLE_VAULT_PASS_CLIENT_USERNAME")
+    pass_status_cmd=("$pass_cmd" status -q)
+    pass_query_cmd=("$pass_cmd" show --password %q)
+    ;;
+  op|1password)
+    pass_name="1Password"
+    pass_cmd=op
+    [ "${ANSIBLE_VAULT_PASS_CLIENT_SHORTHAND-}" ] || {
+      printf 'Required shorthand for %s configuration is missing.\n' "$pass_name" >&2
+      printf 'Please follow instructions on https://support.1password.com/command-line-getting-started/ first.\n' >&2
+      printf 'Finally, set ANSIBLE_VAULT_PASS_CLIENT_SHORTHAND accordingly.\n' >&2
+      exit 1
+    }
+    pass_login_cmd=("$pass_cmd" signin "$ANSIBLE_VAULT_PASS_CLIENT_SHORTHAND")
+    pass_status_cmd=("$pass_cmd" list connect tokens)
+    pass_query_cmd=("$pass_cmd" get item %q --fields password)
+    ;;
+  *)
+    if [ "${ANSIBLE_VAULT_PASS_CLIENT-}" ]; then
+      printf 'Your configured password manager "%s" configuration is missing.\n' "${ANSIBLE_VAULT_PASS_CLIENT-}" >&2
+    else
+      printf 'No password manager set. Please set ANSIBLE_VAULT_PASS_CLIENT.\n' >&2
+    fi
+    exit 1
+    ;;
+esac
+
+command -v "$pass_cmd" >/dev/null || {
+  printf '%s is missing. Please install %s, e.g. using \`brew install %s\`\n' "$pass_cmd" "$pass_name" "$pass_cmd" >&2
+  exit 1
+}
+
+if ! "${pass_status_cmd[@]}"; then
+  if ! "${pass_login_cmd[@]}" >/dev/null; then
+    printf 'Failed to perform %s login using: %b\n' "$pass_name" "${pass_login_cmd[*]}" >&2
+    exit 1
+  fi
+fi
+
+declare label="" id=()
+while (($#)); do
+  case $1 in
+    --vault-id)
+      shift
+      [ $# ] || {
+        printf '--vault-id set but argument unexpectedly missing\n' >&2
+        exit 1
+      }
+      [ "$1" = "default" ] || label=$1
+      shift
+      ;;
+    *)
+      id+=("$1") && shift
+      ;;
+  esac
+done
+
+declare pass_item_name
+pass_item_name="$(join_by . "${id[@]}")${label:+:$label}"
+
+if [ "${PWD:-/}" = "/" ]; then
+  printf '%s' "$pass_item_name" >&2
+  exit 2
+fi
+
+# Queries for a password
+# Globals:
+#   DEBUG - if set, logs to ~/.ansible-vault-last-client.log
+# Arguments:
+#   1 - query to use
+#   * - arguments matching %q are replaced with the query
+#       and used as the command line to perform this operation
+pass_query() {
+  declare q=$1 && shift
+  declare cmd=()
+  while (($#)); do
+    if [ "$1" = %q ]; then
+      cmd+=("$q")
+    else
+      cmd+=("$1")
+    fi
+    shift
+  done
+  declare log_file=/dev/null
+  if [ "${DEBUG-}" ]; then
+    log_file=~/.ansible-vault-last-client.log
+    printf 'querying derived "%s": %b\n' "$q" "${cmd[*]}" >>"$log_file"
+  fi
+  "${cmd[@]}" 2>>"$log_file"
+}
+
+if [ ! "$pass_item_name" ] || ! pass_query "$pass_item_name" "${pass_query_cmd[@]}"; then
+  declare dirs=()
+  while IFS= read -d . -r dir; do
+    dirs=("$dir" "${dirs[@]}")
+  done < <(basename "$PWD.")
+  cd .. && "$0" --vault-id "$label" "${id[@]}" "${dirs[@]}"
+fi
