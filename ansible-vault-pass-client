@@ -27,14 +27,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# Joins remaining args with first arg.
-join_by() {
-  local d=${1-} f=${2-}
-  if shift 2; then
-    printf %s "$f" "${@/#/$d}"
-  fi
-}
-
 declare pass_name pass_cmd
 declare -a pass_login_cmd pass_status_cmd pass_query_cmd
 case ${ANSIBLE_VAULT_PASS_CLIENT-} in
@@ -85,15 +77,16 @@ if ! "${pass_status_cmd[@]}"; then
   fi
 fi
 
-declare label="" id=()
+# Determine label
+declare label=""
 while (($#)); do
   case $1 in
     --vault-id)
       shift
-      [ $# ] || {
-        printf '--vault-id set but argument unexpectedly missing\n' >&2
+      if [ $# -eq 0 ]; then
+        printf -- '--vault-id set but argument unexpectedly missing\n' >&2
         exit 1
-      }
+      fi
       [ "$1" = "default" ] || label=$1
       shift
       ;;
@@ -103,13 +96,13 @@ while (($#)); do
   esac
 done
 
-declare pass_item_name
-pass_item_name="$(join_by . "${id[@]}")${label:+:$label}"
-
-if [ "${PWD:-/}" = "/" ]; then
-  printf '%s' "$pass_item_name" >&2
-  exit 2
-fi
+# Joins remaining args with first arg.
+join_by() {
+  local d=${1-} f=${2-}
+  if shift 2; then
+    printf %s "$f" "${@/#/$d}"
+  fi
+}
 
 # Queries for a password
 # Globals:
@@ -137,10 +130,28 @@ pass_query() {
   "${cmd[@]}" 2>>"$log_file"
 }
 
-if [ ! "$pass_item_name" ] || ! pass_query "$pass_item_name" "${pass_query_cmd[@]}"; then
-  declare dirs=()
-  while IFS= read -d . -r dir; do
-    dirs=("$dir" "${dirs[@]}")
-  done < <(basename "$PWD.")
-  cd .. && "$0" --vault-id "$label" "${id[@]}" "${dirs[@]}"
-fi
+declare -a queries=()
+declare query
+declare dir=$PWD
+declare name
+while true; do
+  declare names=()
+  while IFS= read -d . -r part; do
+    names=("$part" "${names[@]}")
+  done < <(basename "$dir.")
+
+  [ "${names[0]}" ] || {
+    declare list
+    printf -v list ', %s' "${queries[@]}"
+    printf 'No matching item found. Tried: %s' "${list:2}"
+    exit 2
+  }
+
+  name=$(join_by . ${name:+$name} "${names[@]}")
+  query="$name${label:+:$label}"
+  queries+=("$query")
+
+  ! pass_query "$query" "${pass_query_cmd[@]}" || exit 0
+
+  dir=$(dirname "$dir")
+done
