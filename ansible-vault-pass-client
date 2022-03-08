@@ -92,7 +92,7 @@ while (($#)); do
       shift
       ;;
     *)
-      id+=("$1") && shift
+      shift
       ;;
   esac
 done
